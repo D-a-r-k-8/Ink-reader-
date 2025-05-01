@@ -1,1 +1,493 @@
+PDFViewerApp/
+├── app/
+│   ├── build.gradle
+│   ├── src/
+│   │   ├── main/
+│   │   │   ├── AndroidManifest.xml
+│   │   │   ├── assets/
+│   │   │   │   └── sample.pdf
+│   │   │   ├── java/
+│   │   │   │   └── com/
+│   │   │   │       └── example/
+│   │   │   │           └── pdfviewer/
+│   │   │   │               ├── DrawingView.kt
+│   │   │   │               └── MainActivity.kt
+│   │   │   ├── res/
+│   │   │   │   ├── drawable/
+│   │   │   │   │   ├── ic_ball.xml
+│   │   │   │   │   ├── ic_eraser.xml
+│   │   │   │   │   ├── ic_highlighter.xml
+│   │   │   │   │   └── ic_pen.xml
+│   │   │   │   ├── layout/
+│   │   │   │   │   └── activity_main.xml
+│   │   │   │   ├── values/
+│   │   │   │   │   └── strings.xml
+│   │   │   │   └── values-ar/
+│   │   │   │       └── strings.xml
+├── build.gradle
+└── settings.gradle
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
 
+android {
+    compileSdk 31
+
+    defaultConfig {
+        applicationId "com.example.pdfviewer"
+        minSdk 31
+        targetSdk 31
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'com.github.barteksc:android-pdf-viewer:3.2.0-beta.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.pdfviewer">
+
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PDFViewer">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>package com.example.pdfviewer
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.View
+
+class DrawingView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
+    private var paint = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        color = Color.BLACK
+    }
+    private var path = Path()
+    private val paths = mutableListOf<Pair<Path, Paint>>()
+    var mode = "pen" // pen, highlighter, eraser
+    var transparency = 128 // مستوى الشفافية (0-255)
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        for ((p, paint) in paths) {
+            canvas.drawPath(p, paint)
+        }
+        canvas.drawPath(path, paint)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        val x = event.x
+        val y = event.y
+
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                path = Path()
+                paint = Paint(paint).apply {
+                    when (mode) {
+                        "pen" -> {
+                            style = Paint.Style.STROKE
+                            strokeWidth = 5f
+                            color = Color.BLACK
+                            alpha = 255
+                        }
+                        "highlighter" -> {
+                            style = Paint.Style.STROKE
+                            strokeWidth = 20f
+                            color = Color.YELLOW
+                            alpha = transparency
+                        }
+                        "eraser" -> {
+                            style = Paint.Style.STROKE
+                            strokeWidth = 20f
+                            color = Color.WHITE
+                            alpha = 255
+                        }
+                    }
+                }
+                path.moveTo(x, y)
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                path.lineTo(x, y)
+                invalidate()
+            }
+            MotionEvent.ACTION_UP -> {
+                paths.add(Pair(path, Paint(paint)))
+                path = Path()
+            }
+        }
+        return true
+    }
+
+    fun clear() {
+        paths.clear()
+        path.reset()
+        invalidate()
+    }
+}package com.example.pdfviewer
+
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.view.MotionEvent
+import android.view.View
+import android.widget.Button
+import android.widget.ImageView
+import android.widget.SeekBar
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import com.github.barteksc.pdfviewer.PDFView
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var pdfView: PDFView
+    private lateinit var drawingView: DrawingView
+    private lateinit var btnOpenPdf: Button
+    private lateinit var btnPen: Button
+    private lateinit var btnHighlighter: Button
+    private lateinit var btnEraser: Button
+    private lateinit var transparencySeekBar: SeekBar
+    private lateinit var floatingBall: ImageView
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            openPdfPicker()
+        } else {
+            Toast.makeText(this, "يتطلب الإذن للوصول إلى الملفات", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private val pdfPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            result.data?.data?.let { uri ->
+                loadPdf(uri)
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // تهيئة العناصر
+        pdfView = findViewById(R.id.pdfView)
+        drawingView = findViewById(R.id.drawingView)
+        btnOpenPdf = findViewById(R.id.btnOpenPdf)
+        btnPen = findViewById(R.id.btnPen)
+        btnHighlighter = findViewById(R.id.btnHighlighter)
+        btnEraser = findViewById(R.id.btnEraser)
+        transparencySeekBar = findViewById(R.id.transparencySeekBar)
+        floatingBall = findViewById(R.id.floatingBall)
+
+        // تحميل ملف PDF افتراضي
+        pdfView.fromAsset("sample.pdf")
+            .enableSwipe(true)
+            .enableDoubletap(true)
+            .load()
+
+        // فتح ملف PDF
+        btnOpenPdf.setOnClickListener {
+            checkStoragePermission()
+        }
+
+        // إعداد أزرار الأدوات
+        btnPen.setOnClickListener {
+            drawingView.mode = "pen"
+            transparencySeekBar.visibility = View.GONE
+            updateFloatingBall("pen")
+        }
+        btnHighlighter.setOnClickListener {
+            drawingView.mode = "highlighter"
+            transparencySeekBar.visibility = View.VISIBLE
+            updateFloatingBall("highlighter")
+        }
+        btnEraser.setOnClickListener {
+            drawingView.mode = "eraser"
+            transparencySeekBar.visibility = View.GONE
+            updateFloatingBall("eraser")
+        }
+
+        // تحكم في الشفافية
+        transparencySeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                drawingView.transparency = progress
+                drawingView.invalidate()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        // جعل الكرة المتحركة قابلة للسحب
+        var offsetX = 0f
+        var offsetY = 0f
+        floatingBall.setOnTouchListener { view, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    offsetX = event.rawX - view.x
+                    offsetY = event.rawY - view.y
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    view.x = event.rawX - offsetX
+                    view.y = event.rawY - offsetY
+                }
+                MotionEvent.ACTION_UP -> {
+                    // تغيير الأداة عند النقر
+                    when (drawingView.mode) {
+                        "pen" -> {
+                            drawingView.mode = "highlighter"
+                            transparencySeekBar.visibility = View.VISIBLE
+                            updateFloatingBall("highlighter")
+                        }
+                        "highlighter" -> {
+                            drawingView.mode = "eraser"
+                            transparencySeekBar.visibility = View.GONE
+                            updateFloatingBall("eraser")
+                        }
+                        "eraser" -> {
+                            drawingView.mode = "pen"
+                            transparencySeekBar.visibility = View.GONE
+                            updateFloatingBall("pen")
+                        }
+                    }
+                }
+            }
+            true
+        }
+    }
+
+    private fun checkStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            when {
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                ) == PackageManager.PERMISSION_GRANTED -> {
+                    openPdfPicker()
+                }
+                else -> {
+                    requestPermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                }
+            }
+        } else {
+            openPdfPicker()
+        }
+    }
+
+    private fun openPdfPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/pdf"
+        }
+        pdfPickerLauncher.launch(intent)
+    }
+
+    private fun loadPdf(uri: Uri) {
+        pdfView.fromUri(uri)
+            .enableSwipe(true)
+            .enableDoubletap(true)
+            .load()
+    }
+
+    private fun updateFloatingBall(mode: String) {
+        when (mode) {
+            "pen" -> floatingBall.setImageResource(R.drawable.ic_pen)
+            "highlighter" -> floatingBall.setImageResource(R.drawable.ic_highlighter)
+            "eraser" -> floatingBall.setImageResource(R.drawable.ic_eraser)
+        }
+    }
+}<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:layoutDirection="rtl"
+    android:background="@android:color/white">
+
+    <!-- عارض PDF -->
+    <com.github.barteksc.pdfviewer.PDFView
+        android:id="@+id/pdfView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- لوحة الرسم -->
+    <com.example.pdfviewer.DrawingView
+        android:id="@+id/drawingView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- شريط الأدوات -->
+    <LinearLayout
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:color/white"
+        android:orientation="horizontal"
+        android:padding="8dp">
+
+        <Button
+            android:id="@+id/btnOpenPdf"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/open_pdf" />
+
+        <Button
+            android:id="@+id/btnPen"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/pen" />
+
+        <Button
+            android:id="@+id/btnHighlighter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/highlighter" />
+
+        <Button
+            android:id="@+id/btnEraser"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/eraser" />
+
+        <SeekBar
+            android:id="@+id/transparencySeekBar"
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:max="255"
+            android:progress="128"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- الكرة المتحركة -->
+    <ImageView
+        android:id="@+id/floatingBall"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:src="@drawable/ic_ball"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentEnd="true"
+        android:layout_margin="16dp" />
+
+</RelativeLayout><resources>
+    <string name="app_name">PDF Viewer</string>
+    <string name="pen">Pen</string>
+    <string name="highlighter">Highlighter</string>
+    <string name="eraser">Eraser</string>
+    <string name="open_pdf">Open PDF</string>
+</resources><resources>
+    <string name="app_name">عارض PDF</string>
+    <string name="pen">قلم</string>
+    <string name="highlighter">تظليل</string>
+    <string name="eraser">ممحاة</string>
+    <string name="open_pdf">فتح ملف PDF</string>
+</resources><vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#000000"
+        android:pathData="M3,17.25V21h3.75L17.81,9.94l-3.75,-3.75L3,17.25zM20.71,7.04c0.39,-0.39 0.39,-1.02 0,-1.41l-2.34,-2.34c-0.39,-0.39 -1.02,-0.39 -1.41,0l-1.83,1.83 3.75,3.75 1.83,-1.83z"/>
+</vector><vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFF00"
+        android:pathData="M17.66,8L12,2.34 6.34,8 4,10.34 10.34,16.68 12,18.34 13.66,16.68 20,10.34 17.66,8z"/>
+</vector><vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF0000"
+        android:pathD<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="50dp"
+    android:height="50dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M12,12m-10,0a10,10 0,1,1 20,0a10,10 0,1,1 -20,0"/>
+</vector>ata="M16.24,3.56l4.2,4.2c0.39,0.39 0.39,1.02 0,1.41l-9.64,9.64c-0.39,0.39 -1.02,0.39 -1.41,0l-4.2,-4.2c-0.39,-0.39 -0.39,-1.02 0,-1.41l9.64,-9.64c0.39,-0.39 1.02,-0.39 1.41,0z"/>
+</vector>plugins {
+    id 'com.android.application' version '7.3.1' apply false
+    id 'com.android.library' version '7.3.1' apply false
+    id 'org.jetbrains.kotlin.android' version '1.9.0' apply false
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "PDFViewer"
+include ':app'
